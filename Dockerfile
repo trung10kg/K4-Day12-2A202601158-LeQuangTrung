@@ -23,14 +23,37 @@
 #            docker images day12-chat:prod     # xem dung lượng
 # ═══════════════════════════════════════════════════════════════════
 
-FROM python:3.11
+FROM python:3.11-slim as builder
 
-WORKDIR /app
+WORKDIR /build
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir --upgrade --prefix=/install -r requirements.txt
+
+FROM python:3.11-slim as runtime
+
+WORKDIR /app    
+
+RUN useradd \
+    --create-home \
+    --shell /usr/sbin/nologin \
+    appuser
+
+COPY --from=builder /install /usr/local
 
 COPY . .
 
-RUN pip install -r requirements.txt
+ENV PORT=8000
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK  --interval=30s \
+            --timeout=5s \
+            --start-period=10s \
+            --retries=3 \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8000') + '/healthz', timeout=3)" || exit 1
+
+USER appuser
+
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
